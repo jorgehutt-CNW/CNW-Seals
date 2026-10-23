@@ -66,57 +66,35 @@ export default function App() {
 
   // Live real-time synchronization with Firestore (default) database on cnw-seal
   useEffect(() => {
-    // Automatically record & seed current users and locations into Firestore
-    recordUsersAndLocationsToFirestore(
-      authorizedUsers.length > 0 ? authorizedUsers : INITIAL_AUTHORIZED_USERS,
-      locationsList.length > 0 ? locationsList : DEFAULT_LOCATIONS
-    ).catch(err => {
-      console.warn('[Firestore] User/location recording:', err);
-    });
+    // Only ensure superuser/users are present in Firestore so authentication works
+    if (authorizedUsers.length > 0) {
+      saveBatchUsersToFirestore(authorizedUsers).catch(err => {
+        console.warn('[Firestore] User recording:', err);
+      });
+    }
 
     const unsubscribe = subscribeToCNWSealDatabase({
       onSeals: (remoteSeals) => {
-        if (remoteSeals && remoteSeals.length > 0) {
-          setSeals(remoteSeals);
-        } else {
-          // If remote seals collection is empty, seed with INITIAL_SEALS
-          saveBatchSealsToFirestore(INITIAL_SEALS).catch(err => console.warn('[Firestore] Initial seals seed:', err));
-        }
+        setSeals(remoteSeals || []);
         setIsFirestoreSynced(true);
       },
       onTrips: (remoteTrips) => {
-        if (remoteTrips && remoteTrips.length > 0) {
-          setTrips(remoteTrips);
-        } else {
-          // If remote trips collection is empty, seed with INITIAL_TRIPS
-          for (const trip of INITIAL_TRIPS) {
-            saveTripToFirestore(trip).catch(err => console.warn('[Firestore] Initial trip seed:', err));
-          }
-        }
+        setTrips(remoteTrips || []);
       },
       onLocations: (remoteLocations) => {
-        if (remoteLocations && remoteLocations.length > 0) {
-          setLocationsList(remoteLocations);
-        } else {
-          // If remote locations collection is empty, seed with DEFAULT_LOCATIONS
-          saveBatchLocationsToFirestore(DEFAULT_LOCATIONS).catch(console.error);
-        }
+        // Authoritative Firestore state: reflect exactly what is in Firestore (empty when wiped)
+        setLocationsList(remoteLocations || []);
       },
       onUsers: (remoteUsers) => {
         if (remoteUsers && remoteUsers.length > 0) {
           setAuthorizedUsers(remoteUsers);
-        } else {
-          // If remote users collection is empty, seed with INITIAL_AUTHORIZED_USERS
-          saveBatchUsersToFirestore(INITIAL_AUTHORIZED_USERS).catch(console.error);
         }
       },
       onRequests: (remoteRequests) => {
         setAccessRequests(remoteRequests || []);
       },
       onLogs: (remoteLogs) => {
-        if (remoteLogs && remoteLogs.length > 0) {
-          setAuditLogs(remoteLogs);
-        }
+        setAuditLogs(remoteLogs || []);
       },
       onError: (err) => {
         console.warn('[Firestore Live Sync]', err.message);
@@ -221,12 +199,16 @@ export default function App() {
   // Sync locationsList to localStorage and synchronize destinations
   useEffect(() => {
     try {
-      localStorage.setItem('cnw_locations', JSON.stringify(locationsList));
+      if (locationsList.length > 0) {
+        localStorage.setItem('cnw_locations', JSON.stringify(locationsList));
+      } else {
+        localStorage.removeItem('cnw_locations');
+      }
     } catch (e) {
       // ignore
     }
     const activeCodes = locationsList.map(l => l.code);
-    setDestinations(activeCodes.length > 0 ? activeCodes : ['LAX', 'SFO', 'PHX']);
+    setDestinations(activeCodes);
   }, [locationsList]);
 
   // Derived location codes list for station pulldowns
@@ -1241,7 +1223,14 @@ export default function App() {
     setIsResettingFirestore(true);
     try {
       const result = await clearOperationalCollectionsFromFirestore();
-      // Wipe local operational state in React to guarantee sync with wiped Firestore database
+      // Wipe local operational state in React and localStorage to guarantee sync with wiped Firestore database
+      try {
+        localStorage.removeItem('cnw_locations');
+        localStorage.removeItem('cnw_seals');
+        localStorage.removeItem('cnw_trips');
+      } catch (e) {
+        // ignore
+      }
       setSeals([]);
       setTrips([]);
       setAuditLogs([]);
@@ -1942,79 +1931,6 @@ export default function App() {
                   <FileText className="w-4 h-4 text-indigo-400" />
                   <span>Audit Trail Ledger</span>
                 </button>
-
-                {/* Box-type element next to the right of Audit Trail Ledger */}
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs shadow-2xs whitespace-nowrap ${
-                  currentRole === 'SUPERUSER'
-                    ? isDark 
-                      ? 'bg-amber-950/40 border-amber-700/60 text-amber-200' 
-                      : 'bg-amber-50/90 border-amber-300 text-amber-950'
-                    : isDark 
-                      ? 'bg-slate-900 border-slate-700 text-slate-200' 
-                      : 'bg-slate-100 border-slate-300 text-slate-900'
-                }`}>
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    currentRole === 'SUPERUSER'
-                      ? 'bg-amber-500 ring-2 ring-amber-400/50'
-                      : currentRole === 'ADMIN'
-                      ? 'bg-indigo-500'
-                      : 'bg-emerald-500'
-                  }`} />
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-[11px] opacity-75">Role:</span>
-                    <span className="font-extrabold text-xs">
-                      {currentRole === 'SUPERUSER'
-                        ? 'Superuser'
-                        : currentRole === 'ADMIN'
-                        ? 'Admin (Origin / HQ)'
-                        : `Operator (${operatorBranch})`}
-                    </span>
-                    {currentRole === 'SUPERUSER' && (
-                      <span className="font-mono text-[9px] uppercase font-black bg-amber-500 text-white px-1.5 py-0.2 rounded shadow-2xs">
-                        Override
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Role switch action buttons if Superuser */}
-                  {currentRole === 'SUPERUSER' ? (
-                    <div className="flex items-center gap-1 pl-1 border-l border-amber-400/40">
-                      <button
-                        type="button"
-                        onClick={() => handleRoleChange('ADMIN')}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer border ${
-                          isDark 
-                            ? 'bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700' 
-                            : 'bg-white hover:bg-amber-100 text-slate-900 border-amber-300 shadow-2xs'
-                        }`}
-                        title="View system as Administrator"
-                      >
-                        Admin
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRoleChange('OPERATOR')}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer border ${
-                          isDark 
-                            ? 'bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700' 
-                            : 'bg-white hover:bg-amber-100 text-slate-900 border-amber-300 shadow-2xs'
-                        }`}
-                        title="View system as Operator"
-                      >
-                        Operator
-                      </button>
-                    </div>
-                  ) : currentRole === 'ADMIN' && isEnrolledSuperuser ? (
-                    <button
-                      type="button"
-                      onClick={() => handleRoleChange('SUPERUSER')}
-                      className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
-                    >
-                      <ShieldAlert className="w-2.5 h-2.5 text-amber-200" />
-                      <span>Superuser</span>
-                    </button>
-                  ) : null}
-                </div>
               </>
             ) : (
               // Operator Navigation
@@ -2049,25 +1965,110 @@ export default function App() {
                     </span>
                   )}
                 </button>
+              </>
+            )}
+          </div>
 
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs shadow-2xs whitespace-nowrap ${
-                  isDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-900'
-                }`}>
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-                  <span className="font-semibold text-[11px] opacity-75">Role:</span>
-                  <span className="font-extrabold text-xs">Operator ({operatorBranch})</span>
-                  {isEnrolledSuperuser && (
+          {/* Moved out of the tabs box and placed to the right: Role Badge & Switcher */}
+          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+            {(currentRole === 'ADMIN' || currentRole === 'SUPERUSER') ? (
+              <div className={`flex flex-col gap-1.5 px-3 py-2 rounded-xl border text-xs shadow-2xs min-w-[210px] ${
+                currentRole === 'SUPERUSER'
+                  ? isDark 
+                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-200' 
+                    : 'bg-amber-50/90 border-amber-300 text-amber-950'
+                  : isDark 
+                    ? 'bg-slate-900 border-slate-700 text-slate-200' 
+                    : 'bg-slate-100 border-slate-300 text-slate-900'
+              }`}>
+                {/* Level 1: Role Status */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                      currentRole === 'SUPERUSER'
+                        ? 'bg-amber-500 ring-2 ring-amber-400/50'
+                        : 'bg-indigo-500'
+                    }`} />
+                    <span className="font-semibold text-[11px] opacity-75">Role:</span>
+                    <span className="font-extrabold text-xs">
+                      {currentRole === 'SUPERUSER'
+                        ? 'Superuser'
+                        : 'Admin (Origin / HQ)'}
+                    </span>
+                  </div>
+                  {currentRole === 'SUPERUSER' && (
+                    <span className="font-mono text-[9px] uppercase font-black bg-amber-500 text-white px-1.5 py-0.2 rounded shadow-2xs">
+                      Override
+                    </span>
+                  )}
+                </div>
+
+                {/* Level 2: Buttons Admin and Operator below */}
+                {currentRole === 'SUPERUSER' ? (
+                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-amber-400/25">
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange('ADMIN')}
+                      className={`flex-1 px-2 py-1 rounded-md text-[10px] font-bold text-center transition-colors cursor-pointer border ${
+                        isDark 
+                          ? 'bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700' 
+                          : 'bg-white hover:bg-amber-100 text-slate-900 border-amber-300 shadow-2xs'
+                      }`}
+                      title="View system as Administrator"
+                    >
+                      Admin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange('OPERATOR')}
+                      className={`flex-1 px-2 py-1 rounded-md text-[10px] font-bold text-center transition-colors cursor-pointer border ${
+                        isDark 
+                          ? 'bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 border-amber-700' 
+                          : 'bg-white hover:bg-amber-100 text-slate-900 border-amber-300 shadow-2xs'
+                      }`}
+                      title="View system as Operator"
+                    >
+                      Operator
+                    </button>
+                  </div>
+                ) : currentRole === 'ADMIN' && isEnrolledSuperuser ? (
+                  <div className="pt-1.5 border-t border-slate-700/30">
                     <button
                       type="button"
                       onClick={() => handleRoleChange('SUPERUSER')}
-                      className="ml-1 px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                      className="w-full px-2 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shadow-2xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
                     >
                       <ShieldAlert className="w-2.5 h-2.5 text-amber-200" />
-                      <span>Superuser</span>
+                      <span>Back to Superuser</span>
                     </button>
-                  )}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className={`flex flex-col gap-1.5 px-3 py-2 rounded-xl border text-xs shadow-2xs min-w-[210px] ${
+                isDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-900'
+              }`}>
+                {/* Level 1: Role Status */}
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="font-semibold text-[11px] opacity-75">Role:</span>
+                  <span className="font-extrabold text-xs">Operator ({operatorBranch})</span>
                 </div>
-              </>
+
+                {/* Level 2: Superuser Switch Button below if enrolled */}
+                {isEnrolledSuperuser && (
+                  <div className="pt-1.5 border-t border-slate-700/30">
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange('SUPERUSER')}
+                      className="w-full px-2 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shadow-2xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <ShieldAlert className="w-2.5 h-2.5 text-amber-200" />
+                      <span>Back to Superuser</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -2082,6 +2083,8 @@ export default function App() {
             locationsList={locationsList}
             isSuperuser={isEnrolledSuperuser || currentRole === 'SUPERUSER'}
             currentRole={currentRole}
+            assignedFacility={userAssignedFacility}
+            isFacilityRestricted={isFacilityRestricted}
             sealToEdit={sealToEditDirectly}
             onClearSealToEdit={() => setSealToEditDirectly(null)}
             onGenerateBatch={handleGenerateBatch}
@@ -2117,6 +2120,8 @@ export default function App() {
             seals={scopedSeals}
             currentRole={currentRole}
             operatorBranch={operatorBranch}
+            assignedFacility={userAssignedFacility}
+            isFacilityRestricted={isFacilityRestricted}
             destinations={destinations}
             onVerifyArrivalStandard={handleVerifyArrivalStandard}
             onVerifyArrivalInspectionSwap={handleVerifyArrivalInspectionSwap}

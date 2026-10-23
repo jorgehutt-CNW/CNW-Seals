@@ -80,9 +80,7 @@ export const TripDispatchModule: React.FC<TripDispatchModuleProps> = ({
             });
           }
         });
-        if (docsList.length > 0) {
-          setFirestoreLocations(docsList);
-        }
+        setFirestoreLocations(docsList);
       },
       (error) => {
         console.warn('[TripDispatch] Firestore locations sync:', error);
@@ -500,22 +498,9 @@ export const TripDispatchModule: React.FC<TripDispatchModuleProps> = ({
 
               {/* Destination */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-900">
-                    Destination Station <span className="text-rose-600">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddDestModal(true);
-                      setNewDestError('');
-                    }}
-                    className="text-[11px] font-bold text-indigo-700 hover:text-indigo-950 flex items-center gap-0.5 cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>New</span>
-                  </button>
-                </div>
+                <label className="block font-bold text-slate-900 mb-1">
+                  Destination Station <span className="text-rose-600">*</span>
+                </label>
                 <select
                   value={destination}
                   onChange={(e) => setDestination(e.target.value)}

@@ -11,6 +11,8 @@ interface ArrivalVerificationModuleProps {
   seals: Seal[];
   currentRole: UserRole;
   operatorBranch: string;
+  assignedFacility?: string;
+  isFacilityRestricted?: boolean;
   destinations: string[];
   onVerifyArrivalStandard: (tripId: string, arrivalNotes?: string) => Promise<void> | void;
   onVerifyArrivalInspectionSwap: (tripId: string, reason: string, arrivalNotes?: string) => Promise<void> | void;
@@ -23,13 +25,20 @@ export const ArrivalVerificationModule: React.FC<ArrivalVerificationModuleProps>
   seals,
   currentRole,
   operatorBranch,
+  assignedFacility,
+  isFacilityRestricted,
   destinations,
   onVerifyArrivalStandard,
   onVerifyArrivalInspectionSwap,
   onRollbackTrip,
   onSelectSealForPassport
 }) => {
-  const initialBranchFilter = currentRole === 'OPERATOR' && operatorBranch !== 'ALL' ? operatorBranch : 'ALL';
+  const isOperator = currentRole === 'OPERATOR';
+  const operatorAssignedFacility = (assignedFacility && assignedFacility !== 'ALL') 
+    ? assignedFacility 
+    : (operatorBranch !== 'ALL' ? operatorBranch : 'LAX');
+
+  const initialBranchFilter = isOperator ? operatorAssignedFacility : 'ALL';
   const [stationFilter, setStationFilter] = useState<string>(initialBranchFilter);
   const [activeTab, setActiveTab] = useState<'IN_TRANSIT' | 'COMPLETED' | 'DISPOSED' | 'ROLLED_BACK'>('IN_TRANSIT');
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,10 +65,10 @@ export const ArrivalVerificationModule: React.FC<ArrivalVerificationModuleProps>
   };
 
   React.useEffect(() => {
-    if (currentRole === 'OPERATOR' && operatorBranch !== 'ALL') {
-      setStationFilter(operatorBranch);
+    if (isOperator) {
+      setStationFilter(operatorAssignedFacility);
     }
-  }, [currentRole, operatorBranch]);
+  }, [isOperator, operatorAssignedFacility]);
 
   const [selectedTripForVerification, setSelectedTripForVerification] = useState<Trip | null>(null);
   const [selectedDoorSealChoice, setSelectedDoorSealChoice] = useState<'PRIMARY' | 'EXTRA'>('PRIMARY');
@@ -126,9 +135,11 @@ export const ArrivalVerificationModule: React.FC<ArrivalVerificationModuleProps>
     }
   };
 
+  const effectiveStation = isOperator ? operatorAssignedFacility : stationFilter;
+
   const filteredTrips = useMemo(() => {
     return trips.filter(trip => {
-      const matchesStation = stationFilter === 'ALL' || trip.destination === stationFilter;
+      const matchesStation = effectiveStation === 'ALL' || trip.destination === effectiveStation;
       const matchesTab = activeTab === 'IN_TRANSIT' 
         ? trip.status === 'IN_TRANSIT'
         : activeTab === 'COMPLETED'
@@ -143,21 +154,21 @@ export const ArrivalVerificationModule: React.FC<ArrivalVerificationModuleProps>
 
       return matchesStation && matchesTab && matchesSearch;
     });
-  }, [trips, stationFilter, activeTab, searchQuery]);
+  }, [trips, effectiveStation, activeTab, searchQuery]);
 
   // All Disposed seals related to destination station filter
   const disposedSeals = useMemo(() => {
     return seals.filter(s => {
       if (s.status !== 'DISPOSED') return false;
-      if (stationFilter === 'ALL') return true;
+      if (effectiveStation === 'ALL') return true;
       return (
-        s.location === stationFilter ||
-        s.currentTripDestination === stationFilter ||
-        s.currentTripOrigin === stationFilter ||
-        s.returnOriginatingDestination === stationFilter
+        s.location === effectiveStation ||
+        s.currentTripDestination === effectiveStation ||
+        s.currentTripOrigin === effectiveStation ||
+        s.returnOriginatingDestination === effectiveStation
       );
     });
-  }, [seals, stationFilter]);
+  }, [seals, effectiveStation]);
 
   const filteredDisposedSeals = useMemo(() => {
     if (!searchQuery.trim()) return disposedSeals;
@@ -271,14 +282,31 @@ export const ArrivalVerificationModule: React.FC<ArrivalVerificationModuleProps>
 
             {/* Station dropdown */}
             <select
-              value={stationFilter}
-              onChange={(e) => setStationFilter(e.target.value)}
-              className="text-xs font-bold px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={isOperator ? operatorAssignedFacility : stationFilter}
+              onChange={(e) => {
+                if (isOperator) return;
+                setStationFilter(e.target.value);
+              }}
+              disabled={isOperator}
+              className={`text-xs font-bold px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                isOperator
+                  ? 'bg-slate-200 border-slate-400 text-slate-800 cursor-not-allowed opacity-90'
+                  : 'bg-white border-slate-300 text-slate-950 cursor-pointer'
+              }`}
+              title={isOperator ? `Facility locked to assigned branch (${operatorAssignedFacility}) for Operator user` : 'Filter arrival trips by station'}
             >
-              <option value="ALL">All Stations ({trips.length} trips)</option>
-              {destinations.map(d => (
-                <option key={d} value={d}>{d} Station</option>
-              ))}
+              {isOperator ? (
+                <option value={operatorAssignedFacility}>
+                  {operatorAssignedFacility} Station (Assigned)
+                </option>
+              ) : (
+                <>
+                  <option value="ALL">All Stations ({trips.length} trips)</option>
+                  {destinations.map(d => (
+                    <option key={d} value={d}>{d} Station</option>
+                  ))}
+                </>
+              )}
             </select>
 
             {/* Search Input */}

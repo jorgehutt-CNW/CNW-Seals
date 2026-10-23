@@ -459,86 +459,55 @@ export async function clearOperationalCollectionsFromFirestore(): Promise<{
   deletedAuditLogs: number;
   deletedLocations: number;
 }> {
-  let deletedSeals = 0;
-  let deletedTrips = 0;
-  let deletedAuditLogs = 0;
-  let deletedLocations = 0;
+  const deleteCollectionDocs = async (collectionName: string): Promise<number> => {
+    try {
+      const snap = await getDocs(collection(db, collectionName));
+      const count = snap.size;
+      if (count === 0) return 0;
 
-  // 1. Delete all seals
-  try {
-    const sealsSnap = await getDocs(collection(db, COLLECTIONS.SEALS));
-    deletedSeals = sealsSnap.size;
-    const batchSize = 450;
-    const docs = sealsSnap.docs;
-    for (let i = 0; i < docs.length; i += batchSize) {
-      const chunk = docs.slice(i, i + batchSize);
-      const batch = writeBatch(db);
-      for (const d of chunk) {
-        batch.delete(d.ref);
+      const batchSize = 400;
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += batchSize) {
+        const chunk = docs.slice(i, i + batchSize);
+        const batch = writeBatch(db);
+        for (const d of chunk) {
+          batch.delete(d.ref);
+        }
+        await batch.commit();
       }
-      await batch.commit();
-    }
-    console.log(`[Firestore] Deleted ${deletedSeals} seals documents`);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.SEALS);
-  }
 
-  // 2. Delete all trips
-  try {
-    const tripsSnap = await getDocs(collection(db, COLLECTIONS.TRIPS));
-    deletedTrips = tripsSnap.size;
-    const batchSize = 450;
-    const docs = tripsSnap.docs;
-    for (let i = 0; i < docs.length; i += batchSize) {
-      const chunk = docs.slice(i, i + batchSize);
-      const batch = writeBatch(db);
-      for (const d of chunk) {
-        batch.delete(d.ref);
+      // Check if any lingering documents remain and delete individually
+      const recheckSnap = await getDocs(collection(db, collectionName));
+      if (recheckSnap.size > 0) {
+        for (const docItem of recheckSnap.docs) {
+          await deleteDoc(docItem.ref);
+        }
       }
-      await batch.commit();
-    }
-    console.log(`[Firestore] Deleted ${deletedTrips} trips documents`);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.TRIPS);
-  }
 
-  // 3. Delete all audit logs
-  try {
-    const logsSnap = await getDocs(collection(db, COLLECTIONS.AUDIT_LOGS));
-    deletedAuditLogs = logsSnap.size;
-    const batchSize = 450;
-    const docs = logsSnap.docs;
-    for (let i = 0; i < docs.length; i += batchSize) {
-      const chunk = docs.slice(i, i + batchSize);
-      const batch = writeBatch(db);
-      for (const d of chunk) {
-        batch.delete(d.ref);
+      console.log(`[Firestore] Completely wiped collection "${collectionName}": ${count} docs`);
+      return count;
+    } catch (err) {
+      console.error(`[Firestore] Error wiping collection "${collectionName}":`, err);
+      try {
+        const fallbackSnap = await getDocs(collection(db, collectionName));
+        for (const d of fallbackSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+        return fallbackSnap.size;
+      } catch (fallbackErr) {
+        handleFirestoreError(fallbackErr, OperationType.DELETE, collectionName);
       }
-      await batch.commit();
+      return 0;
     }
-    console.log(`[Firestore] Deleted ${deletedAuditLogs} auditLogs documents`);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.AUDIT_LOGS);
-  }
+  };
 
-  // 4. Delete all locations
-  try {
-    const locsSnap = await getDocs(collection(db, COLLECTIONS.LOCATIONS));
-    deletedLocations = locsSnap.size;
-    const batchSize = 450;
-    const docs = locsSnap.docs;
-    for (let i = 0; i < docs.length; i += batchSize) {
-      const chunk = docs.slice(i, i + batchSize);
-      const batch = writeBatch(db);
-      for (const d of chunk) {
-        batch.delete(d.ref);
-      }
-      await batch.commit();
-    }
-    console.log(`[Firestore] Deleted ${deletedLocations} locations documents`);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.LOCATIONS);
-  }
+  // Run wipe across all four collections in parallel
+  const [deletedLocations, deletedSeals, deletedTrips, deletedAuditLogs] = await Promise.all([
+    deleteCollectionDocs(COLLECTIONS.LOCATIONS),
+    deleteCollectionDocs(COLLECTIONS.SEALS),
+    deleteCollectionDocs(COLLECTIONS.TRIPS),
+    deleteCollectionDocs(COLLECTIONS.AUDIT_LOGS)
+  ]);
 
   return { deletedSeals, deletedTrips, deletedAuditLogs, deletedLocations };
 }

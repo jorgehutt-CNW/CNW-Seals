@@ -13,6 +13,8 @@ interface MainStockModuleProps {
   locationsList?: LocationRecord[];
   isSuperuser?: boolean;
   currentRole?: string;
+  assignedFacility?: string;
+  isFacilityRestricted?: boolean;
   sealToEdit?: Seal | null;
   onClearSealToEdit?: () => void;
   onGenerateBatch: (start: number, end: number, purchaseDate: string, boxRef: string, notes: string, location: string) => { added: number; skipped: number };
@@ -29,6 +31,8 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
   locationsList,
   isSuperuser,
   currentRole,
+  assignedFacility,
+  isFacilityRestricted,
   sealToEdit,
   onClearSealToEdit,
   onGenerateBatch,
@@ -49,6 +53,16 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
     return locations.map(c => ({ id: `LOC-${c}`, code: c, name: `${c} Station` }));
   }, [locationsList, locations]);
 
+  // Fixed facility for Admin User:
+  // When user is an Admin (currentRole === 'ADMIN' && !isSuperuser) or facility restricted,
+  // the facility is locked to their assigned facility.
+  const isAdmin = currentRole === 'ADMIN' && !isSuperuser;
+  const adminAssignedFacility = (isAdmin || isFacilityRestricted)
+    ? (assignedFacility && assignedFacility !== 'ALL' 
+        ? assignedFacility 
+        : (selectedLocation !== 'ALL' ? selectedLocation : (recordedLocations[0]?.code || 'LAX')))
+    : null;
+
   // Bulk generator state
   const [showBulkGenerator, setShowBulkGenerator] = useState(false);
   const [bulkStart, setBulkStart] = useState<string>('');
@@ -57,9 +71,11 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
   const [bulkBoxRef, setBulkBoxRef] = useState<string>('');
   const [bulkNotes, setBulkNotes] = useState<string>('');
   const [bulkLocation, setBulkLocation] = useState<string>(
-    selectedLocation === 'ALL' 
-      ? (locationsList?.[0]?.code || locations[0] || 'LAX') 
-      : selectedLocation
+    adminAssignedFacility || (
+      selectedLocation === 'ALL' 
+        ? (locationsList?.[0]?.code || locations[0] || 'LAX') 
+        : selectedLocation
+    )
   );
   const [bulkFeedback, setBulkFeedback] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
@@ -70,9 +86,11 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
   const [singleBoxRef, setSingleBoxRef] = useState('');
   const [singleNotes, setSingleNotes] = useState('');
   const [singleLocation, setSingleLocation] = useState(
-    selectedLocation === 'ALL' 
-      ? (locationsList?.[0]?.code || locations[0] || 'LAX') 
-      : selectedLocation
+    adminAssignedFacility || (
+      selectedLocation === 'ALL' 
+        ? (locationsList?.[0]?.code || locations[0] || 'LAX') 
+        : selectedLocation
+    )
   );
   const [singleError, setSingleError] = useState('');
 
@@ -100,9 +118,12 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
     }
   }, [sealToEdit, onClearSealToEdit]);
 
-  // Update modal location defaults when top selectedLocation or recorded locations change
+  // Update modal location defaults when top selectedLocation, assignedFacility, or recorded locations change
   React.useEffect(() => {
-    if (selectedLocation !== 'ALL') {
+    if (adminAssignedFacility) {
+      setBulkLocation(adminAssignedFacility);
+      setSingleLocation(adminAssignedFacility);
+    } else if (selectedLocation !== 'ALL') {
       setBulkLocation(selectedLocation);
       setSingleLocation(selectedLocation);
     } else if (recordedLocations.length > 0) {
@@ -113,7 +134,7 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
         setSingleLocation(recordedLocations[0].code);
       }
     }
-  }, [selectedLocation, recordedLocations]);
+  }, [adminAssignedFacility, selectedLocation, recordedLocations]);
 
   // Computed range count
   const parsedStart = parseInt(bulkStart, 10);
@@ -142,7 +163,7 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
       return;
     }
 
-    const targetLoc = bulkLocation || (selectedLocation === 'ALL' ? 'LAX' : selectedLocation);
+    const targetLoc = adminAssignedFacility || bulkLocation || (selectedLocation === 'ALL' ? 'LAX' : selectedLocation);
     const result = onGenerateBatch(parsedStart, parsedEnd, bulkDate, bulkBoxRef.trim() || `BX-${targetLoc}-UNASSIGNED`, bulkNotes.trim(), targetLoc);
     if (result.added > 0) {
       setBulkFeedback({
@@ -170,7 +191,7 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
       return;
     }
 
-    const targetLoc = singleLocation || (selectedLocation === 'ALL' ? 'LAX' : selectedLocation);
+    const targetLoc = adminAssignedFacility || singleLocation || (selectedLocation === 'ALL' ? 'LAX' : selectedLocation);
     const success = onAddSingleSeal(cleanNum, singleDate, singleBoxRef.trim() || `BX-${targetLoc}-REG`, singleNotes.trim(), targetLoc);
     if (success) {
       setShowSingleModal(false);
@@ -293,7 +314,7 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
               onClick={() => {
                 setShowSingleModal(true);
                 setSingleError('');
-                setSingleLocation(selectedLocation === 'ALL' ? 'LAX' : selectedLocation);
+                setSingleLocation(adminAssignedFacility || (selectedLocation === 'ALL' ? 'LAX' : selectedLocation));
               }}
               className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 shadow-xs transition-colors cursor-pointer"
             >
@@ -336,21 +357,36 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
 
               <form onSubmit={handleBulkSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-900 mb-1">
-                    Station Location <span className="text-rose-600">*</span>
+                  <label className="block font-bold text-slate-900 mb-1 flex items-center justify-between">
+                    <span>Station Location <span className="text-rose-600">*</span></span>
+                    {adminAssignedFacility && (
+                      <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                        Assigned
+                      </span>
+                    )}
                   </label>
                   <select
-                    value={bulkLocation}
-                    onChange={(e) => setBulkLocation(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-950 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={adminAssignedFacility || bulkLocation}
+                    onChange={(e) => {
+                      if (!adminAssignedFacility) {
+                        setBulkLocation(e.target.value);
+                      }
+                    }}
+                    disabled={Boolean(adminAssignedFacility)}
+                    className={`w-full px-2.5 py-1.5 border rounded-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                      adminAssignedFacility
+                        ? 'bg-slate-200 border-slate-400 text-slate-800 cursor-not-allowed opacity-90'
+                        : 'bg-white border-slate-300 text-slate-950'
+                    }`}
+                    title={adminAssignedFacility ? `Fixed to assigned facility (${adminAssignedFacility}) for Admin User` : 'Station Location'}
                   >
                     {recordedLocations.map(loc => (
                       <option key={loc.id || loc.code} value={loc.code}>
                         {loc.code} - {loc.name}
                       </option>
                     ))}
-                    {!recordedLocations.some(l => l.code === bulkLocation) && bulkLocation && (
-                      <option value={bulkLocation}>{bulkLocation}</option>
+                    {!recordedLocations.some(l => l.code === (adminAssignedFacility || bulkLocation)) && (adminAssignedFacility || bulkLocation) && (
+                      <option value={adminAssignedFacility || bulkLocation}>{adminAssignedFacility || bulkLocation}</option>
                     )}
                   </select>
                 </div>
@@ -724,24 +760,37 @@ export const MainStockModule: React.FC<MainStockModuleProps> = ({
 
             <form onSubmit={handleSingleSubmit} className="mt-4 space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-900 mb-1">
-                  Station Location <span className="text-rose-600">*</span>
+                <label className="block font-bold text-slate-900 mb-1 flex items-center justify-between">
+                  <span>Station Location <span className="text-rose-600">*</span></span>
+                  {adminAssignedFacility && (
+                    <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                      Assigned
+                    </span>
+                  )}
                 </label>
                 <select
-                  value={singleLocation}
+                  value={adminAssignedFacility || singleLocation}
                   onChange={(e) => {
-                    setSingleLocation(e.target.value);
-                    setSingleBoxRef(`BX-${e.target.value}-REG`);
+                    if (!adminAssignedFacility) {
+                      setSingleLocation(e.target.value);
+                      setSingleBoxRef(`BX-${e.target.value}-REG`);
+                    }
                   }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-950 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  disabled={Boolean(adminAssignedFacility)}
+                  className={`w-full px-3 py-2 border rounded-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                    adminAssignedFacility
+                      ? 'bg-slate-200 border-slate-400 text-slate-800 cursor-not-allowed opacity-90'
+                      : 'bg-white border-slate-300 text-slate-950'
+                  }`}
+                  title={adminAssignedFacility ? `Fixed to assigned facility (${adminAssignedFacility}) for Admin User` : 'Station Location'}
                 >
                   {recordedLocations.map(loc => (
                     <option key={loc.id || loc.code} value={loc.code}>
                       {loc.code} - {loc.name}
                     </option>
                   ))}
-                  {!recordedLocations.some(l => l.code === singleLocation) && singleLocation && (
-                    <option value={singleLocation}>{singleLocation}</option>
+                  {!recordedLocations.some(l => l.code === (adminAssignedFacility || singleLocation)) && (adminAssignedFacility || singleLocation) && (
+                    <option value={adminAssignedFacility || singleLocation}>{adminAssignedFacility || singleLocation}</option>
                   )}
                 </select>
               </div>
