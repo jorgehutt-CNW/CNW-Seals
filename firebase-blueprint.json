@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "Seal": {
+      "title": "Seal",
+      "description": "High-security container bolt seal record and lifecycle tracking",
+      "type": "object",
+      "properties": {
+        "sealNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["AVAILABLE", "IN_TRANSIT_OUTBOUND", "PENDING_RETURN_TRANSIT", "DISPOSED"] },
+        "purchaseDate": { "type": "string" },
+        "boxRef": { "type": "string" },
+        "location": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["sealNumber", "status", "purchaseDate", "boxRef", "location"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "Outbound container trip dispatch record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "originLocation": { "type": "string" },
+        "destination": { "type": "string" },
+        "dispatchDate": { "type": "string" },
+        "containerOrTruckId": { "type": "string" },
+        "primarySealNumber": { "type": "string" },
+        "extraSealNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["IN_TRANSIT", "COMPLETED_STANDARD", "COMPLETED_INSPECTION_SWAP", "ROLLED_BACK"] }
+      },
+      "required": ["id", "originLocation", "destination", "dispatchDate", "containerOrTruckId", "primarySealNumber", "extraSealNumber", "status"]
+    },
+    "LocationRecord": {
+      "title": "LocationRecord",
+      "description": "System logistics facility and station managed by Superuser",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "AuthorizedUser": {
+      "title": "AuthorizedUser",
+      "description": "User authorized by Superuser with assigned role and station",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPERUSER", "ADMIN", "OPERATOR"] },
+        "station": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "REVOKED"] },
+        "enrolledAt": { "type": "string" },
+        "enrolledBy": { "type": "string" }
+      },
+      "required": ["id", "email", "displayName", "role", "station", "status", "enrolledAt", "enrolledBy"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Chain of custody immutable audit ledger entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "eventType": { "type": "string" },
+        "actor": { "type": "string" },
+        "summary": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "eventType", "actor", "summary"]
+    }
+  },
+  "firestore": {
+    "/seals/{sealNumber}": {
+      "schema": { "$ref": "#/entities/Seal" },
+      "description": "Security bolt seal inventory and transit tracking documents"
+    },
+    "/trips/{tripId}": {
+      "schema": { "$ref": "#/entities/Trip" },
+      "description": "Outbound and completed container dispatch trips"
+    },
+    "/locations/{locationId}": {
+      "schema": { "$ref": "#/entities/LocationRecord" },
+      "description": "System logistics locations and stations governed by Superuser"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/AuthorizedUser" },
+      "description": "User authorizations, roles and facility scoping"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogEntry" },
+      "description": "Immutable tamper-evident security audit trail"
+    }
+  }
+}

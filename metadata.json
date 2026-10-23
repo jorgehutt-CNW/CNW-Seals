@@ -1,0 +1,6 @@
+{
+  "name": "CtrlInvSeal - Security Seal Inventory & Transit Control",
+  "description": "Chain-of-custody and lifecycle management for high-security container seals across logistics operations, trip dispatches, inspection verifications, and return transit.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

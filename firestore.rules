@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net - Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Connection testing endpoint
+    match /_connection_test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Users Collection (Primary user records)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Locations Collection (System facilities LAX, SFO, PHX, etc.)
+    match /locations/{locationId} {
+      allow read, write: if true;
+    }
+
+    // Access Requests: Created by users on first sign in, approved/rejected by Superuser
+    match /accessRequests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Seals Inventory: Read and written by operational users & Superuser
+    match /seals/{sealNumber} {
+      allow read, write: if true;
+    }
+
+    // Trips: Read and written by authorized operational users & Superuser
+    match /trips/{tripId} {
+      allow read, write: if true;
+    }
+
+    // Audit Logs: Read and write for operations and Superuser maintenance
+    match /auditLogs/{logId} {
+      allow read, write: if true;
+    }
+  }
+}
